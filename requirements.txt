@@ -3,3 +3,4 @@ yt-dlp>=2023.9.24
 pydub>=0.25.1
 numpy>=1.26.0
 scipy>=1.11.0
+audioop-lts>=0.2.1

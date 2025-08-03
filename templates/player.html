@@ -296,7 +296,6 @@
     <!-- Hidden audio element for ambient audio -->
     <audio id="ambientAudio" 
            src="/static/processed/{{ audio_file }}" 
-           autoplay 
            loop 
            preload="auto"
            style="display: none;">
@@ -413,18 +412,6 @@
             });
         }
 
-        // Auto-play ambient audio when page loads
-        window.addEventListener('load', function() {
-            // Small delay to ensure everything is loaded
-            setTimeout(() => {
-                if (currentMode === 'ambient') {
-                    ambientAudio.play().catch(e => {
-                        console.log('Autoplay prevented, user interaction required');
-                    });
-                }
-            }, 1000);
-        });
-
         // Handle audio loading errors
         ambientAudio.addEventListener('error', function() {
             statusIndicator.innerHTML = 'Error loading ambient audio';
@@ -433,11 +420,10 @@
             statusIndicator.style.color = '#FFB3B3';
         });
 
-        // Sync audio with video (basic implementation)
+        // Audio is ready but won't autoplay - user must click to start
         ambientAudio.addEventListener('loadeddata', function() {
-            if (currentMode === 'ambient') {
-                ambientAudio.play();
-            }
+            // Don't autoplay - wait for user interaction
+            console.log('Audio loaded and ready to play');
         });
     </script>
 </body>

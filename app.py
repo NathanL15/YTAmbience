@@ -8,6 +8,8 @@ import re
 import tempfile
 import numpy as np
 from scipy import signal
+import subprocess
+import shutil
 
 app = Flask(__name__)
 
@@ -18,25 +20,28 @@ os.makedirs('static/processed', exist_ok=True)
 PRESETS = {
     'small_room': {
         'name': 'Small Room',
-        'low_pass_cutoff': 5000,
-        'reverb_decay': 0.5,
-        'gain_reduction': -6,
-        'stereo_width': 1.2
+        'low_pass_cutoff': 3000,
+        'reverb_decay': 1.5,
+        'gain_reduction': -12,
+        'stereo_width': 1.8,
+        'distance_factor': 0.4
     },
     'concert_hall': {
         'name': 'Concert Hall',
-        'low_pass_cutoff': 3500,
-        'reverb_decay': 2.5,
-        'gain_reduction': -10,
-        'stereo_width': 1.5
+        'low_pass_cutoff': 2000,
+        'reverb_decay': 4.0,
+        'gain_reduction': -18,
+        'stereo_width': 2.2,
+        'distance_factor': 0.2
     },
     'next_room': {
         'name': 'Next Room',
-        'low_pass_cutoff': 2500,
-        'reverb_decay': 1.2,
-        'gain_reduction': -12,
-        'stereo_width': 1.1,
-        'extra_muffling': True
+        'low_pass_cutoff': 1500,
+        'reverb_decay': 2.8,
+        'gain_reduction': -20,
+        'stereo_width': 1.6,
+        'extra_muffling': True,
+        'distance_factor': 0.15
     }
 }
 
@@ -54,6 +59,10 @@ def extract_video_id(url):
     
     return None
 
+def check_ffmpeg():
+    """Check if FFmpeg is available"""
+    return shutil.which('ffmpeg') is not None
+
 def download_audio(video_id):
     """Download audio from YouTube using yt-dlp"""
     temp_dir = tempfile.mkdtemp()
@@ -62,9 +71,9 @@ def download_audio(video_id):
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': temp_file,
-        'extractaudio': True,
-        'audioformat': 'mp3',
-        'audioquality': '192K',
+        'noplaylist': True,
+        # Try to download without post-processing first
+        'postprocessors': []
     }
     
     try:
@@ -72,17 +81,40 @@ def download_audio(video_id):
             ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
         
         # Find the downloaded file
+        downloaded_file = None
         for file in os.listdir(temp_dir):
             if file.startswith(video_id):
-                return os.path.join(temp_dir, file)
+                downloaded_file = os.path.join(temp_dir, file)
+                break
         
-        raise Exception("Downloaded file not found")
+        if not downloaded_file:
+            raise Exception("Downloaded file not found")
+
+        # Load and normalize the audio
+        audio = AudioSegment.from_file(downloaded_file)
+        normalized_audio = normalize_audio(audio)
+        normalized_audio.export(downloaded_file, format="mp3")
+
+        return downloaded_file
     
+    except FileNotFoundError as e:
+        if "ffmpeg" in str(e).lower() or "avconv" in str(e).lower():
+            raise Exception("FFmpeg is not installed. Please install FFmpeg and add it to your system PATH, or try using a different audio format.")
+        else:
+            raise Exception(f"File not found: {str(e)}")
+    except yt_dlp.utils.DownloadError as e:
+        raise Exception(f"Failed to download video: {str(e)}")
     except Exception as e:
-        raise Exception(f"Failed to download audio: {str(e)}")
+        error_msg = str(e)
+        if "ffmpeg" in error_msg.lower() or "avconv" in error_msg.lower():
+            raise Exception("FFmpeg is not installed. Please install FFmpeg and add it to your system PATH.")
+        elif "[WinError 2]" in error_msg:
+            raise Exception("FFmpeg is required but not found. Please install FFmpeg and add it to your system PATH.")
+        else:
+            raise Exception(f"Failed to download audio: {error_msg}")
 
 def apply_reverb(audio_segment, decay_time):
-    """Apply simple reverb effect using delay and decay"""
+    """Apply enhanced reverb effect using multiple delays for more spacious sound"""
     # Convert to numpy array
     samples = audio_segment.get_array_of_samples()
     if audio_segment.channels == 2:
@@ -90,28 +122,34 @@ def apply_reverb(audio_segment, decay_time):
     else:
         samples = np.array(samples)
     
-    # Create reverb using multiple delayed versions
+    # Create reverb using multiple delayed versions with different characteristics
     sample_rate = audio_segment.frame_rate
-    delay_samples = int(0.05 * sample_rate)  # 50ms initial delay
     
     reverb_audio = samples.astype(np.float32)
     
-    # Add multiple echoes with decreasing amplitude
-    num_echoes = int(decay_time * 10)  # More echoes for longer decay
-    for i in range(1, num_echoes + 1):
-        delay = delay_samples * i
-        amplitude = 0.3 * (0.7 ** i)  # Exponential decay
+    # Multiple delay lines for more complex reverb
+    delay_times = [0.03, 0.07, 0.13, 0.21, 0.34]  # Various delay times in seconds
+    
+    for delay_time in delay_times:
+        delay_samples = int(delay_time * sample_rate)
         
-        if audio_segment.channels == 2:
-            delayed = np.zeros_like(reverb_audio)
-            if delay < len(samples):
-                delayed[delay:] = samples[:-delay] * amplitude
-            reverb_audio += delayed
-        else:
-            delayed = np.zeros_like(reverb_audio)
-            if delay < len(samples):
-                delayed[delay:] = samples[:-delay] * amplitude
-            reverb_audio += delayed
+        # Add multiple echoes with decreasing amplitude for each delay line
+        num_echoes = max(3, int(decay_time * 8))  # More echoes for longer decay
+        for i in range(1, num_echoes + 1):
+            delay = delay_samples * i
+            # Much more conservative amplitude to prevent clipping
+            amplitude = 0.2 * (0.5 ** i) * (1.0 / len(delay_times))
+            
+            if audio_segment.channels == 2:
+                delayed = np.zeros_like(reverb_audio)
+                if delay < len(samples):
+                    delayed[delay:] = samples[:-delay] * amplitude
+                reverb_audio += delayed
+            else:
+                delayed = np.zeros_like(reverb_audio)
+                if delay < len(samples):
+                    delayed[delay:] = samples[:-delay] * amplitude
+                reverb_audio += delayed
     
     # Convert back to AudioSegment
     reverb_audio = np.clip(reverb_audio, -32768, 32767).astype(np.int16)
@@ -169,28 +207,43 @@ def process_audio(audio_file_path, preset_name):
     if audio.channels == 1:
         audio = audio.set_channels(2)
     
-    # Apply gain reduction
-    audio = audio + preset['gain_reduction']
+    # Apply much more aggressive initial gain reduction to prevent clipping
+    audio = audio + preset['gain_reduction'] - 10  # Extra -10dB reduction
     
-    # Apply low-pass filter
+    # Apply distance simulation - reduce volume significantly to simulate being far away
+    distance_reduction = -25 * (1 - preset['distance_factor'])  # Even more reduction
+    audio = audio + distance_reduction
+    
+    # Apply low-pass filter (more aggressive for distance)
     audio = low_pass_filter(audio, preset['low_pass_cutoff'])
     
     # Apply extra muffling for "Next Room" preset
     if preset.get('extra_muffling'):
-        # Additional EQ dip around 2kHz
-        # This is a simplified version - in a real implementation you'd use proper EQ
-        audio = low_pass_filter(audio, 2000) * 0.7 + audio * 0.3
+        # Additional EQ dip around 2kHz for more muffled sound
+        muffled_audio = low_pass_filter(audio, 1000).apply_gain(-8)  # Even more aggressive muffling
+        audio = audio.overlay(muffled_audio, gain_during_overlay=-8)
+        # Apply additional high-frequency roll-off
+        audio = low_pass_filter(audio, 800)
     
-    # Apply reverb
+    # Apply reverb (much more pronounced)
     audio = apply_reverb(audio, preset['reverb_decay'])
     
-    # Apply stereo widening
+    # Apply stereo widening for spatial effect
     audio = apply_stereo_widening(audio, preset['stereo_width'])
     
-    # Normalize to prevent clipping
+    # Apply additional gain reduction before normalization to prevent clipping
+    audio = audio - 5  # Extra safety margin
+    
+    # Final normalization to prevent clipping but keep it very quiet
     audio = normalize(audio)
     
     return audio
+
+def normalize_audio(audio_segment):
+    """Normalize audio to a target dBFS level."""
+    target_dBFS = -40.0  # Very quiet target loudness level to prevent distortion
+    change_in_dBFS = target_dBFS - audio_segment.dBFS
+    return audio_segment.apply_gain(change_in_dBFS)
 
 @app.route('/')
 def index():
@@ -205,6 +258,12 @@ def process_video():
     
     if not youtube_url:
         return jsonify({'error': 'YouTube URL is required'}), 400
+    
+    # Check if FFmpeg is available
+    if not check_ffmpeg():
+        return jsonify({
+            'error': 'FFmpeg is required but not installed. Please install FFmpeg and add it to your system PATH. Visit https://ffmpeg.org/download.html for installation instructions.'
+        }), 500
     
     # Extract video ID
     video_id = extract_video_id(youtube_url)
@@ -246,6 +305,12 @@ def reprocess_audio():
     
     if not video_id or not new_preset:
         return jsonify({'error': 'Video ID and preset are required'}), 400
+    
+    # Check if FFmpeg is available
+    if not check_ffmpeg():
+        return jsonify({
+            'error': 'FFmpeg is required but not installed. Please install FFmpeg and add it to your system PATH.'
+        }), 500
     
     try:
         # Download audio again
