@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ambient Player - YouTube</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .current-preset {
+            background: rgba(255, 255, 255, 0.2);
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+
+        .main-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto 30px;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+        }
+
+        .video-wrapper {
+            position: relative;
+            padding-bottom: 56.25%; /* 16:9 aspect ratio */
+            height: 0;
+        }
+
+        iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .controls-panel {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            margin: 30px auto;
+            max-width: 600px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .audio-controls {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .audio-toggle {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .toggle-button {
+            padding: 12px 24px;
+            border: 2px solid #ff6b6b;
+            background: transparent;
+            color: white;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1em;
+            font-weight: 500;
+        }
+
+        .toggle-button.active {
+            background: #ff6b6b;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+        }
+
+        .toggle-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 107, 107, 0.3);
+        }
+
+        .preset-controls {
+            text-align: center;
+        }
+
+        .preset-controls h3 {
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .preset-selector {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .preset-btn {
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9em;
+        }
+
+        .preset-btn.active {
+            background: #764ba2;
+            border-color: #764ba2;
+            box-shadow: 0 4px 15px rgba(118, 75, 162, 0.4);
+        }
+
+        .preset-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .status-indicator {
+            background: rgba(0, 255, 0, 0.2);
+            border: 1px solid rgba(0, 255, 0, 0.5);
+            color: #90EE90;
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .loading-content {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 3px solid white;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .home-button {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .home-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                padding: 20px 15px;
+            }
+            
+            .controls-panel {
+                padding: 20px;
+                margin: 20px 15px;
+            }
+            
+            .preset-selector {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .preset-btn {
+                width: 200px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <a href="/" class="home-button">🏠 Home</a>
+    
+    <div class="header">
+        <h1>🎵 Ambient Experience</h1>
+        <div class="current-preset">Current: <span id="currentPresetName">{{ preset_name }}</span></div>
+    </div>
+
+    <div class="main-content">
+        <div class="video-container">
+            <div class="video-wrapper">
+                <iframe id="youtube-player"
+                        src="https://www.youtube.com/embed/{{ video_id }}?autoplay=1&mute=1&rel=0&modestbranding=1"
+                        allow="autoplay; encrypted-media"
+                        allowfullscreen>
+                </iframe>
+            </div>
+        </div>
+
+        <div class="controls-panel">
+            <div class="audio-controls">
+                <h3>Audio Mode</h3>
+                <div class="audio-toggle">
+                    <button class="toggle-button active" id="ambientBtn" onclick="switchToAmbient()">
+                        🎵 Ambient
+                    </button>
+                    <button class="toggle-button" id="originalBtn" onclick="switchToOriginal()">
+                        🎬 Original
+                    </button>
+                </div>
+                <div class="status-indicator" id="statusIndicator">
+                    Playing ambient audio with {{ preset_name }} preset
+                </div>
+            </div>
+
+            <div class="preset-controls">
+                <h3>Change Ambient Preset</h3>
+                <div class="preset-selector">
+                    {% for key, preset in presets.items() %}
+                    <button class="preset-btn {% if key == preset %}active{% endif %}" 
+                            onclick="changePreset('{{ key }}', '{{ preset.name }}')">
+                        {{ preset.name }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden audio element for ambient audio -->
+    <audio id="ambientAudio" 
+           src="/static/processed/{{ audio_file }}" 
+           autoplay 
+           loop 
+           preload="auto"
+           style="display: none;">
+    </audio>
+
+    <!-- Loading overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <p>Processing new preset...</p>
+        </div>
+    </div>
+
+    <script>
+        let currentMode = 'ambient';
+        let currentPreset = '{{ preset }}';
+        let videoId = '{{ video_id }}';
+
+        // Get references to elements
+        const ambientAudio = document.getElementById('ambientAudio');
+        const youtubePlayer = document.getElementById('youtube-player');
+        const ambientBtn = document.getElementById('ambientBtn');
+        const originalBtn = document.getElementById('originalBtn');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+
+        function switchToAmbient() {
+            if (currentMode === 'ambient') return;
+            
+            currentMode = 'ambient';
+            
+            // Mute YouTube video and play ambient audio
+            youtubePlayer.src = youtubePlayer.src.replace('&mute=0', '&mute=1');
+            if (!youtubePlayer.src.includes('&mute=1')) {
+                youtubePlayer.src += '&mute=1';
+            }
+            
+            ambientAudio.play();
+            
+            // Update UI
+            ambientBtn.classList.add('active');
+            originalBtn.classList.remove('active');
+            statusIndicator.innerHTML = `Playing ambient audio with ${document.getElementById('currentPresetName').textContent} preset`;
+            statusIndicator.style.borderColor = 'rgba(0, 255, 0, 0.5)';
+            statusIndicator.style.background = 'rgba(0, 255, 0, 0.2)';
+            statusIndicator.style.color = '#90EE90';
+        }
+
+        function switchToOriginal() {
+            if (currentMode === 'original') return;
+            
+            currentMode = 'original';
+            
+            // Unmute YouTube video and pause ambient audio
+            youtubePlayer.src = youtubePlayer.src.replace('&mute=1', '&mute=0');
+            ambientAudio.pause();
+            
+            // Update UI
+            originalBtn.classList.add('active');
+            ambientBtn.classList.remove('active');
+            statusIndicator.innerHTML = 'Playing original YouTube audio';
+            statusIndicator.style.borderColor = 'rgba(255, 165, 0, 0.5)';
+            statusIndicator.style.background = 'rgba(255, 165, 0, 0.2)';
+            statusIndicator.style.color = '#FFB347';
+        }
+
+        function changePreset(presetKey, presetName) {
+            if (presetKey === currentPreset) return;
+            
+            // Show loading
+            loadingOverlay.style.display = 'flex';
+            
+            // Make request to reprocess audio
+            const formData = new FormData();
+            formData.append('video_id', videoId);
+            formData.append('preset', presetKey);
+            
+            fetch('/reprocess', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Update audio source
+                ambientAudio.src = `/static/processed/${data.audio_file}`;
+                
+                // Update current preset
+                currentPreset = presetKey;
+                document.getElementById('currentPresetName').textContent = data.preset_name;
+                
+                // Update active preset button
+                document.querySelectorAll('.preset-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                event.target.classList.add('active');
+                
+                // Update status if in ambient mode
+                if (currentMode === 'ambient') {
+                    statusIndicator.innerHTML = `Playing ambient audio with ${data.preset_name} preset`;
+                    ambientAudio.play();
+                }
+                
+                // Hide loading
+                loadingOverlay.style.display = 'none';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Failed to change preset: ' + error.message);
+                loadingOverlay.style.display = 'none';
+            });
+        }
+
+        // Auto-play ambient audio when page loads
+        window.addEventListener('load', function() {
+            // Small delay to ensure everything is loaded
+            setTimeout(() => {
+                if (currentMode === 'ambient') {
+                    ambientAudio.play().catch(e => {
+                        console.log('Autoplay prevented, user interaction required');
+                    });
+                }
+            }, 1000);
+        });
+
+        // Handle audio loading errors
+        ambientAudio.addEventListener('error', function() {
+            statusIndicator.innerHTML = 'Error loading ambient audio';
+            statusIndicator.style.borderColor = 'rgba(255, 0, 0, 0.5)';
+            statusIndicator.style.background = 'rgba(255, 0, 0, 0.2)';
+            statusIndicator.style.color = '#FFB3B3';
+        });
+
+        // Sync audio with video (basic implementation)
+        ambientAudio.addEventListener('loadeddata', function() {
+            if (currentMode === 'ambient') {
+                ambientAudio.play();
+            }
+        });
+    </script>
+</body>
+</html>
